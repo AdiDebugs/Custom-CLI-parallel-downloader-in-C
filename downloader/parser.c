@@ -1,4 +1,4 @@
-#include "url_parser.h"
+#include "parser.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -353,6 +353,194 @@ char *hexcheck(char *runner2)
 
 
 
+
+
+
+int httpparse(struct http_parser *serv, char *httpresp)
+{
+    if (serv == NULL || httpresp == NULL)
+    {
+        return -1;
+    }
+    serv->ranged_req = 0;
+    serv->content_len = NULL;
+    serv->status_code = NULL;
+    serv->location = NULL;
+
+    char *cursor = httpresp;
+
+    // end of the status line
+    char *line_start = cursor;
+
+    while (*cursor != '\0' && !(cursor[0] == '\r' && cursor[1] == '\n'))
+    {
+        cursor++;
+    }
+
+    if (*cursor == '\0')
+    {
+        goto error;
+    }
+    size_t line_length = (size_t)(cursor - line_start);
+
+    // Extract HTTP status code.
+    char *space = memchr(line_start, ' ', line_length);
+
+    if (space == NULL || strncasecmp(line_start, "HTTP/", 5) != 0)
+    {
+        goto error;
+    }
+    char *status = space + 1;
+    char *line_end = cursor;
+
+    while (status < line_end && (*status == ' ' || *status == '\t'))
+    {
+        status++;
+    }
+
+    if ((size_t)(line_end - status) < 3)
+    {
+        goto error;
+    }
+    if (status[0] < '0' || status[0] > '9' || status[1] < '0' || status[1] > '9' || status[2] < '0' || status[2] > '9')
+    {
+        goto error;
+    }
+    serv->status_code = strndup(status, 3);
+
+    if (serv->status_code == NULL)
+        goto error;
+
+    // Move past the status line's CRLF.
+    cursor += 2;
+
+    // individual headers.
+    while (1)
+    {
+        line_start = cursor;
+
+        while (*cursor != '\0' &&
+               !(cursor[0] == '\r' && cursor[1] == '\n'))
+        {
+            cursor++;
+        }
+
+        if (*cursor == '\0')
+        {
+            goto error;
+        }
+        line_length = (size_t)(cursor - line_start);
+
+        // next line.
+        cursor += 2;
+
+        // if empty line
+        if (line_length == 0)
+        {
+            break;
+        }
+        // Find the colon separating header name and value.
+        char *colon = memchr(line_start, ':', line_length);
+
+        if (colon == NULL)
+        {
+            goto error;
+        }
+        size_t name_length = (size_t)(colon - line_start);
+
+        char *value = colon + 1;
+
+        size_t value_length = line_length - name_length - 1;
+
+        // Remove whitespace.
+        while (value_length > 0 && (*value == ' ' || *value == '\t'))
+        {
+            value++;
+            value_length--;
+        }
+
+        // Remove trailing whitespace.
+        while (value_length > 0 && (value[value_length - 1] == ' ' || value[value_length - 1] == '\t'))
+        {
+            value_length--;
+        }
+
+        // Content-Length
+        if (name_length == 14 && strncasecmp(line_start, "Content-Length", 14) == 0)
+        {
+            if (value_length == 0)
+                goto error;
+
+            // Validate that the value contains only digits.
+            for (size_t i = 0; i < value_length; i++)
+            {
+                if (value[i] < '0' || value[i] > '9')
+                    goto error;
+            }
+
+            char *temp = strndup(value, value_length);
+
+            if (temp == NULL)
+            {
+                goto error;
+            }
+            // Reject conflicting duplicate values.
+            if (serv->content_len != NULL)
+            {
+                if (strcmp(serv->content_len, temp) != 0)
+                {
+                    free(temp);
+                    goto error;
+                }
+
+                free(temp);
+            }
+            else
+            {
+                serv->content_len = temp;
+            }
+        }
+
+        // Accept-Ranges
+        else if (name_length == 13 && strncasecmp(line_start, "Accept-Ranges", 13) == 0)
+        {
+            if (value_length == 5 && strncasecmp(value, "bytes", 5) == 0)
+            {
+                serv->ranged_req = 1;
+            }
+        }
+
+        // Location (redirect URL)
+        else if (name_length == 8 && strncasecmp(line_start, "Location", 8) == 0)
+        {
+            char *temp = strndup(value, value_length);
+
+            if (temp == NULL)
+            {
+                goto error;
+            }
+            free(serv->location);
+            serv->location = temp;
+        }
+    }
+
+    return 0;
+
+error:
+
+    free(serv->status_code);
+    free(serv->content_len);
+    free(serv->location);
+
+    serv->status_code = NULL;
+    serv->content_len = NULL;
+    serv->location = NULL;
+    serv->ranged_req = 0;
+
+    fprintf(stderr, "HTTP response parsing failed\n");
+
+    return -1;
+}
 
 
 

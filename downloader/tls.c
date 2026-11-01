@@ -1,7 +1,13 @@
+
+#define _GNU_SOURCE
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509_vfy.h>
+#include "impheads.h"
 #include "tls.h"
+#include "parser.h"
+#define INITIAL_CAPACITY 16384
+#define MAX_CAPACITY 65536
 
 
 
@@ -106,5 +112,112 @@ printf("TLS handshake successful!\n");
 }
 
 
+//head request tls
 
 
+char *tlshttpresp( SSL *tlsc, struct parser *url)
+
+{
+     
+
+             char *headreq = "HEAD %s HTTP/1.1\r\n"
+                             "Host: %s\r\n"
+                             "Connection: close\r\n\r\n";
+             
+int needed = snprintf(NULL, 0, headreq, url->path, url->hostname);
+
+if (needed < 0)
+{
+ 
+    return NULL;
+}
+
+size_t buffer_size = (size_t)needed + 1;
+char buffer[buffer_size];
+
+snprintf(buffer, buffer_size, headreq, url->path, url->hostname);
+size_t actual_written = 0;
+
+             size_t request_len = strlen(buffer);
+             while(1)
+             {
+
+             
+            size_t bytes_written = SSL_write(tlsc, buffer + actual_written, (int)(request_len-actual_written));
+                if (bytes_written <= 0)
+             {
+                printf("couldnt transmit data to the server\n");
+                return NULL;
+             }
+            actual_written += bytes_written;
+            
+
+            if(actual_written == request_len)
+             {
+              break;
+             }
+                
+
+         
+
+             }
+size_t capacity = INITIAL_CAPACITY;
+
+
+char *reciev = malloc(sizeof(char)*(capacity+1));
+if(reciev == NULL)
+{
+    printf("couldnt allocate memory fot the server resp \n");
+
+    return NULL;
+}
+size_t total_read = 0;
+
+
+
+
+while (1)
+{
+
+if (total_read == capacity)
+    {
+        if (capacity >= MAX_CAPACITY)
+        {
+            fprintf(stderr, "response payload too large\n");
+            free(reciev);
+            return NULL;
+        }
+
+        size_t new_capacity = capacity * 2;
+        if (new_capacity > MAX_CAPACITY)
+            new_capacity = MAX_CAPACITY;
+
+        char *temp = realloc(reciev, new_capacity + 1);
+        if (temp == NULL)
+        {
+            free(reciev);
+            return NULL;
+        }
+        reciev = temp;
+        capacity = new_capacity;
+    }
+
+    int bytes_read = SSL_read(tlsc, reciev + total_read,(int)(capacity - total_read));
+    if (bytes_read <= 0)
+    {
+        fprintf(stderr, "SSL error code: %d\n", SSL_get_error(tlsc, bytes_read));
+        ERR_print_errors_fp(stderr);
+        free(reciev);
+        return NULL;
+    }
+
+    total_read += (size_t)bytes_read;
+    reciev[total_read] = '\0';
+
+    if (strstr(reciev, "\r\n\r\n") != NULL)
+    {
+     
+        return reciev;
+    }
+}
+}

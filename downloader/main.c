@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "url_parser.h"
+#include "parser.h"
 #include "impheads.h"
 #include "tls.h"
 #include "connections.h"
@@ -14,113 +14,133 @@ int main(int argc, char *argv[])
         printf("enter the program name then the domain name!\n");
         return 1;
     }
-    struct parser url;
 
-    // initialize structs
-    as hints, *res;
+    struct parser url = {0};
+    struct http_parser httpresponse = {0};
+
+    SSL_CTX *s = NULL;
+    SSL *tlsc = NULL;
+
+    struct addrinfo hints, *res = NULL;
+
     int status;
+    int sockfd = -1;
+    int exit_status = 1;
+
     char ip[INET_ADDRSTRLEN];
+    char *serverresp = NULL;
+
     // parsing the url
     url = parse(argv[1]);
 
     if (url.success != 1)
     {
         printf("URL parsing failed!\n");
-        return 1;
+        goto cleanup;
     }
 
     if (iscorrect(&url) == 1)
     {
         printf("invalid url!\n");
-        return 1;
+        goto cleanup;
     }
-    //context if https
-     SSL_CTX *s = NULL;
-     SSL *tlsc = NULL;
 
+    // context if https
+    if (strcmp(url.protocol, "https") == 0)
+    {
+        s = sslcont();
 
-    if(strcmp(url.protocol, "https") == 0)
-            {
-               s =  sslcont();
-               if(s == NULL)
-               {
-                return 1;
-               }
-            }
+        if (s == NULL)
+        {
+            goto cleanup;
+        }
+    }
 
     // zero the structs
     memset(&hints, 0, sizeof(hints));
+
     // for ipv4 and tcp
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
-    //
+    // dns resolution
     if ((status = getaddrinfo(url.hostname, url.port, &hints, &res)) != 0)
     {
         fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
-        return 1;
+        goto cleanup;
     }
-//try to make a socket and connect
 
-    int sockfd = createsocket(res, ip, sizeof(ip));
+    // try to make a socket
+    sockfd = createsocket(res, ip, sizeof(ip));
+
     freeaddrinfo(res);
+    res = NULL;
 
-    if(sockfd == -1)
+    if (sockfd == -1)
     {
         printf("couldnt create socket\n");
-        return 1;
+        goto cleanup;
     }
 
- // if connection is succesful then send the request based on protocol
-            if(strcmp(url.protocol, "https") == 0)
-            {
-             tlsc = createtls(s, sockfd, url.hostname);
-             if(tlsc == NULL)
-             {
-                return 1;
-             }
-            }
+    // int threads = optimal_number()
 
-            else
-            {
-                //todo
-            }
+    // wrap the existing socket and send the request based on protocol
+    if (strcmp(url.protocol, "https") == 0)
+    {
+        tlsc = createtls(s, sockfd, url.hostname);
 
-          /*  char *download_req = "GET %s HTTP/1.1\r\n"
-                                 "Host: %s\r\n"
-                                 "Connection: close\r\n"
-                                 "\r\n";
-            // combining the get template with the inputted url
+        if (tlsc == NULL)
+        {
+            fprintf(stderr, "TLS initialization failed\n");
+            goto cleanup;
+        }
 
-            size_t buffer_size = strlen(download_req) + strlen(url.path) + strlen(url.hostname) + 1;
+        serverresp = tlshttpresp(tlsc, &url);
 
-            char dom[buffer_size];
+        if (serverresp == NULL)
+        {
+            printf("failed to recieve server response\n");
+            goto cleanup;
+        }
 
-            snprintf(dom, sizeof(dom), download_req, url.path, url.hostname);
-
-            // send req
-
-            size_t request_len = strlen(dom);
-            int bytes_sent = send(sockfd, dom, request_len, 0);
-
-            if (bytes_sent == -1)
-            {
-                perror("Failed to send download request");
-            }
-
-            printf("socket created succefully! and connection is succesful! file descriptor: %d\n",
-                   sockfd);
-
-            break;
+        if (httpparse(&httpresponse, serverresp) == -1)
+        {
+            printf("Error in response recieved from the server\n");
+            goto cleanup;
         }
     }
+    else
+    {
+        // todo
+    }
 
-    freeaddrinfo(res);
-*/
     printf("hostname: %s\nport: %s\npath: %s\n", url.hostname, url.port, url.path);
+    printf("range supported? %d\ncontent length: %s \nstatus code: %s\nredirect location(if any) %s\n", httpresponse.ranged_req, httpresponse.content_len, httpresponse.status_code, httpresponse.location);
+    exit_status = 0;
 
-    return 0;
+cleanup:
+
+    if (res != NULL)
+        freeaddrinfo(res);
+
+    free(serverresp);
+
+    free(httpresponse.content_len);
+    free(httpresponse.status_code);
+    if(httpresponse.location != NULL)
+    {
+    free(httpresponse.location);
+    }
+
+    if (tlsc != NULL)
+        SSL_free(tlsc);
+
+    if (sockfd != -1)
+        close(sockfd);
+
+    if (s != NULL)
+        SSL_CTX_free(s);
+free(url.path);
+free(url.hostname);
+    return exit_status;
 }
-
-
-
