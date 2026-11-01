@@ -46,7 +46,7 @@ The project is primarily about understanding what happens behind the scenes when
 - **File I/O:** POSIX system calls
 
 ## Building
-
+cd
 Requires GCC, OpenSSL development libraries and a POSIX-compatible environment.
 
 ```bash
