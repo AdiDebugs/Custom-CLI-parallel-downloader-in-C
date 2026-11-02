@@ -115,7 +115,7 @@ printf("TLS handshake successful!\n");
 //head request tls
 
 
-char *tlshttpresp( SSL *tlsc, struct parser *url)
+char *tlshttpresp( SSL *tlsc, struct parser *url, struct timespec *start_time, struct timespec *end_time)
 
 {
      
@@ -144,11 +144,13 @@ size_t actual_written = 0;
 
              
             size_t bytes_written = SSL_write(tlsc, buffer + actual_written, (int)(request_len-actual_written));
+            
                 if (bytes_written <= 0)
              {
                 printf("couldnt transmit data to the server\n");
                 return NULL;
              }
+             
             actual_written += bytes_written;
             
 
@@ -175,7 +177,10 @@ size_t total_read = 0;
 
 
 
-
+if (clock_gettime(CLOCK_MONOTONIC, &start_time) != 0) 
+{
+    printf("couldnt calculate the download speed\n");
+}
 while (1)
 {
 
@@ -216,7 +221,10 @@ if (total_read == capacity)
 
     if (strstr(reciev, "\r\n\r\n") != NULL)
     {
-     
+if (clock_gettime(CLOCK_MONOTONIC, &end_time) != 0) 
+{
+    printf("couldnt calculate the download speed\n");
+}
         return reciev;
     }
 }

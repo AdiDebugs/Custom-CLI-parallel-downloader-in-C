@@ -3,20 +3,23 @@
 #include "impheads.h"
 #include "tls.h"
 #include "connections.h"
+#include "optimal_threadc.h"
 typedef struct addrinfo as;
 typedef struct sockaddr_in net;
 
 // get url
 int main(int argc, char *argv[])
 {
-    if (argc != 2)
+    if (argc != 3)
     {
-        printf("enter the program name then the domain name!\n");
+        printf("enter the program name then the domain name followed by ur maximum bandwidth (the network plan u have in Mb/s eg- 300)!\n");
         return 1;
     }
 
     struct parser url = {0};
     struct http_parser httpresponse = {0};
+    struct timespec start_time = {0};
+    struct timespec end_time = {0};
 
     SSL_CTX *s = NULL;
     SSL *tlsc = NULL;
@@ -95,7 +98,7 @@ int main(int argc, char *argv[])
             goto cleanup;
         }
 
-        serverresp = tlshttpresp(tlsc, &url);
+        serverresp = tlshttpresp(tlsc, &url, &start_time, &end_time);
 
         if (serverresp == NULL)
         {
@@ -108,6 +111,15 @@ int main(int argc, char *argv[])
             printf("Error in response recieved from the server\n");
             goto cleanup;
         }
+       if(httpresponse.ranged_req == 1)
+       {
+         double resptime = transfer_time(&start_time, &end_time);
+         int nthreads = optimalnum(resptime, httpresponse.content_len, argv[2]);
+         printf("number of optimal threads is: %d\n", nthreads);
+         //implement multithreading
+       }
+
+
     }
     else
     {
@@ -144,3 +156,6 @@ free(url.path);
 free(url.hostname);
     return exit_status;
 }
+
+
+
