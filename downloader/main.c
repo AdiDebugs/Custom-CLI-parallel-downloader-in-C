@@ -6,6 +6,7 @@
 #include "optimal_threadc.h"
 typedef struct addrinfo as;
 typedef struct sockaddr_in net;
+int openfile(char *filename, char *content_len);
 
 // get url
 int main(int argc, char *argv[])
@@ -32,6 +33,7 @@ int main(int argc, char *argv[])
 
     char ip[INET_ADDRSTRLEN];
     char *serverresp = NULL;
+    char *notlsservresp = NULL;
 
     // parsing the url
     url = parse(argv[1]);
@@ -111,6 +113,19 @@ int main(int argc, char *argv[])
             printf("Error in response recieved from the server\n");
             goto cleanup;
         }
+        if (atoi(httpresponse.status_code) != 200)
+
+       {
+            fprintf(stderr, "Server returned HTTP status: %s\n", httpresponse.status_code);
+            goto cleanup;
+       }
+
+        if(httpresponse.location != NULL)
+        {
+            printf("the target address has been moved to: %s \nrerun the program using the new address.\n", httpresponse.location);
+            goto cleanup;
+        }
+
        if(httpresponse.ranged_req == 1)
        {
          double resptime = transfer_time(&start_time, &end_time);
@@ -121,17 +136,63 @@ int main(int argc, char *argv[])
 
 
     }
+
+
+
+    
     else
-    {
-        // todo
+    {       
+//proceed with no tls
+notlsservresp = notls(&url, &start_time, &end_time, sockfd);
+        if (notlsservresp == NULL)
+        {
+            printf("failed to recieve server response\n");
+            goto cleanup;
+        }    
+        
+        if (httpparse(&httpresponse, notlsservresp) == -1)
+        {
+            printf("Error in response recieved from the server\n");
+            goto cleanup;
+        }
+
+         if(httpresponse.location != NULL)
+        {
+            printf("the target address has been moved to: %s \nrerun the program using the new address.\n", httpresponse.location);
+            goto cleanup;
+        }
+
+       if(httpresponse.ranged_req == 1)
+       {
+         double resptime = transfer_time(&start_time, &end_time);
+         int nthreads = optimalnum(resptime, httpresponse.content_len, argv[2]);
+         printf("number of optimal threads is: %d\n", nthreads);
+         //implement multithreading-------------
+
+         //create the master file 
+         int fd = openfile(url.filename, httpresponse.content_len);
+         if(fd == -1)
+         {
+            printf("error while creating the file!\n");
+            close(fd);
+            goto cleanup;
+         }
+
+         //send the get req
+
+
+       }
+
     }
 
     printf("hostname: %s\nport: %s\npath: %s\n", url.hostname, url.port, url.path);
-    printf("range supported? %d\ncontent length: %s \nstatus code: %s\nredirect location(if any) %s\n", httpresponse.ranged_req, httpresponse.content_len, httpresponse.status_code, httpresponse.location);
+    printf("range supported? %d\ncontent length: %s \nstatus code: %s\nredirect location(if any) %s\nfile name: %s\n", httpresponse.ranged_req, httpresponse.content_len, httpresponse.status_code, httpresponse.location, url.filename);
     exit_status = 0;
 
-cleanup:
 
+
+
+cleanup:
     if (res != NULL)
         freeaddrinfo(res);
 
@@ -159,3 +220,49 @@ free(url.hostname);
 
 
 
+
+
+int openfile(char *filename, char *content_len)
+{
+ errno = 0;
+ char *endptr = NULL;
+ 
+ int64_t filesize = strtoll(content_len, &endptr, 10);
+
+    if (errno == ERANGE)
+    {
+        fprintf(stderr, "Filesize exceeds system limit.\n");
+        return -1;
+    }
+
+    if (endptr == content_len || *endptr != '\0' || filesize < 0)
+    {
+        fprintf(stderr, "Invalid filesize.\n");
+        return -1;
+    }
+
+    if (filename == 0)
+    {
+        return -1;
+    }
+
+
+
+
+    int fd = open(filename, O_WRONLY | O_CREAT, 0644);
+    if(fd == -1)
+  {
+    perror("openint file failed");
+    return -1;
+  }
+
+
+off_t target_size = filesize; 
+if (ftruncate(fd, target_size) == -1) 
+{
+    perror("ftruncate failed");
+    close(fd);
+    return -1;
+}
+return fd;
+}

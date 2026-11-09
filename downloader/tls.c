@@ -177,7 +177,7 @@ size_t total_read = 0;
 
 
 
-if (clock_gettime(CLOCK_MONOTONIC, &start_time) != 0) 
+if (clock_gettime(CLOCK_MONOTONIC, start_time) != 0) 
 {
     printf("couldnt calculate the download speed\n");
 }
@@ -221,9 +221,9 @@ if (total_read == capacity)
 
     if (strstr(reciev, "\r\n\r\n") != NULL)
     {
-if (clock_gettime(CLOCK_MONOTONIC, &end_time) != 0) 
+if (clock_gettime(CLOCK_MONOTONIC, end_time) != 0) 
 {
-    printf("couldnt calculate the download speed\n");
+    printf("couldnt calculate the response time\n");
 }
         return reciev;
     }

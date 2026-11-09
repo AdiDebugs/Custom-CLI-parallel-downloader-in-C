@@ -6,6 +6,7 @@ struct parser
     char protocol[8];
     char *hostname;
     char *path;
+    char *filename;
     char port[6];
     int success; // 1 for success, 0 for failure
 } ;

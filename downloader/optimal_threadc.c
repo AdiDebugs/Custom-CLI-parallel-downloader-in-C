@@ -30,7 +30,7 @@ int optimalnum(double response_time, char *filesize, char *max_bandwidth)
     char *endptr;
     errno = 0;
 
-    long file_size = strtol(parsed_size_str, &endptr, 10);
+    int64_t file_size = strtoll(parsed_size_str, &endptr, 10);
 
     if (errno == ERANGE)
     {
@@ -45,7 +45,7 @@ int optimalnum(double response_time, char *filesize, char *max_bandwidth)
     }
 
     if (file_size == 0)
-        return 1;
+        return -1;
 
     // Get hardware threads.
     long threads = sysconf(_SC_NPROCESSORS_ONLN);

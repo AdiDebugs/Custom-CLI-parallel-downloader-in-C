@@ -194,7 +194,59 @@ if (strcmp(filled.protocol, "http") == 0)
         filled.path = loc;
     }
 
+//filename
+int tsize = 50;
+char *fname = malloc(sizeof(char)*tsize);
+if(fname == NULL) 
+{
+    printf("couldnt parse the filename\n");
+    free(filled.path);
+    free(filled.hostname);
+    filled.path = NULL;
+    filled.hostname = NULL;
+    return filled;
+}
+char *fnamer = fname;
+char *runner0 = filled.path;
+while(*runner0 != '\0' && *runner0 != '?' && *runner0 != '#')
+{
+    runner0++;
 
+}
+char *runner3 = runner0;
+while(*runner3 != '/')
+{
+    runner3--;
+}
+runner3++;
+int size = 0;
+while(runner3 != runner0)
+{
+    if(size == tsize-1)
+    {
+        char *bfilen = realloc(fname, sizeof(char)*2*tsize);
+        if(bfilen == NULL)
+        {
+          printf("error in allocating space for the filename\n");
+          free(fname);
+          free(filled.path);
+          free(filled.hostname);
+          filled.path = NULL;
+          filled.hostname = NULL;
+          fname = NULL;
+          return filled;
+        }
+        fname = bfilen;
+        fnamer = fname + size;
+        tsize *= 2;
+    }
+    *fnamer = *runner3;
+    fnamer++;
+    runner3++;
+    size++;
+}
+    *fnamer = '\0';
+    filled.filename = fname;
     filled.success = 1;
     return filled;
 }
