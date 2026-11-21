@@ -15,6 +15,8 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509_vfy.h>
+#include <fcntl.h>
 #include <fcntl.h>    // open(), O_WRONLY, O_CREAT, O_TRUNC
 #include <unistd.h>  // close(), ftruncate(), pwrite()
+#include <pthread.h>
 #endif
