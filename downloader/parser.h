@@ -17,6 +17,7 @@ struct http_parser
  char *content_len;
  char *status_code;
  char *location; //incase of redirec 3xx status code
+ char *content_range;
 
 };
 

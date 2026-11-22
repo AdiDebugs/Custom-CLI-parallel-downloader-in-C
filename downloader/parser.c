@@ -418,6 +418,7 @@ int httpparse(struct http_parser *serv, char *httpresp)
     serv->content_len = NULL;
     serv->status_code = NULL;
     serv->location = NULL;
+    serv->content_range = NULL;
 
     char *cursor = httpresp;
 
@@ -553,6 +554,34 @@ int httpparse(struct http_parser *serv, char *httpresp)
             }
         }
 
+        // Content-Range
+else if (name_length == 13 &&
+         strncasecmp(line_start, "Content-Range", 13) == 0)
+{
+    if (value_length == 0)
+        goto error;
+
+    char *temp = strndup(value, value_length);
+
+    if (temp == NULL)
+        goto error;
+
+    if (serv->content_range != NULL)
+    {
+        if (strcmp(serv->content_range, temp) != 0)
+        {
+            free(temp);
+            goto error;
+        }
+
+        free(temp);
+    }
+    else
+    {
+        serv->content_range = temp;
+    }
+}
+
         // Accept-Ranges
         else if (name_length == 13 && strncasecmp(line_start, "Accept-Ranges", 13) == 0)
         {
@@ -583,10 +612,12 @@ error:
     free(serv->status_code);
     free(serv->content_len);
     free(serv->location);
+    free(serv->content_range);
 
     serv->status_code = NULL;
     serv->content_len = NULL;
     serv->location = NULL;
+    serv->content_range = NULL;
     serv->ranged_req = 0;
 
     fprintf(stderr, "HTTP response parsing failed\n");

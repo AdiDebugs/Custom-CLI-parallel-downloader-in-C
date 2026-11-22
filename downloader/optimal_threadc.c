@@ -15,7 +15,7 @@
 #include "parser.h"
 
 #define MIN_CHUNK_SIZE (8 * 1024 * 1024)
-#define MAX_WORKERS 4
+#define MAX_WORKERS 8
 
 
 // Factor in file size, response time, bandwidth and hardware threads.
@@ -47,14 +47,14 @@ int optimalnum(double response_time, char *filesize, char *max_bandwidth)
     if (file_size == 0)
         return -1;
 
-    // Get hardware threads.
+    // Get threads
     long threads = sysconf(_SC_NPROCESSORS_ONLN);
 
     if (threads < 1)
         threads = 1;
 
 
-    // Parse maximum bandwidth.
+    //  max bandwidth.
     errno = 0;
 
     long bandwidthf = strtol(max_bandwidth, &endptr, 10);
@@ -66,10 +66,9 @@ int optimalnum(double response_time, char *filesize, char *max_bandwidth)
         return -1;
     }
 bandwidthf = bandwidthf * 1000000L;
-    // Estimate download time using maximum bandwidth.
+    // Estimate download time 
     double estimated_time = ((double)file_size * 8.0) / bandwidthf;
 
-    // If downloading is already quick, use one worker.
     if (response_time > 0 && estimated_time <= response_time)
         return 1;
 
@@ -81,7 +80,7 @@ bandwidthf = bandwidthf * 1000000L;
         return 1;
 
 
-    // Hardware-based worker limit.
+    // worker limit.
     long max_workers = threads * 2;
 
     if (max_workers > MAX_WORKERS)
@@ -99,7 +98,7 @@ printf("Maximum bandwidth: %ld bps\n", bandwidthf);
 }
 
 
-// Server response time.
+// Server resp time.
 
 double transfer_time(struct timespec *start, struct timespec *end)
 {
