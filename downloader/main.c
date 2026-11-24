@@ -1,5 +1,5 @@
 
-
+//the Architecture is 100% mine ai was only used to stress test, find edge cases, and some small boilerplate code segments 
 
 #define _GNU_SOURCE
 #include "parser.h"

@@ -18,7 +18,7 @@
 #define MAX_WORKERS 8
 
 
-// Factor in file size, response time, bandwidth and hardware threads.
+// Factor in file size, response time, bandwidth and hardware threads
 
 int optimalnum(double response_time, char *filesize, char *max_bandwidth)
 {
@@ -54,7 +54,7 @@ int optimalnum(double response_time, char *filesize, char *max_bandwidth)
         threads = 1;
 
 
-    //  max bandwidth.
+    //  max bandwidth
     errno = 0;
 
     long bandwidthf = strtol(max_bandwidth, &endptr, 10);
@@ -73,21 +73,21 @@ bandwidthf = bandwidthf * 1000000L;
         return 1;
 
 
-    // File is large enough for multiple chunks.
+    // File is large enough for multiple chunks
     long size_workers = file_size / MIN_CHUNK_SIZE;
 
     if (size_workers < 2)
         return 1;
 
 
-    // worker limit.
+    // worker limi
     long max_workers = threads * 2;
 
     if (max_workers > MAX_WORKERS)
         max_workers = MAX_WORKERS;
 
 
-    // Select workers based on file size.
+    // Select workers based on file size
     if (size_workers > max_workers)
         size_workers = max_workers;
 printf("Response time: %f seconds\n", response_time);

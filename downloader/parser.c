@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 
-
+//Ai was used to probe edge cases and testing under real world scenarios
 
 struct parser parse(char *s)
 {
@@ -349,9 +349,7 @@ int iscorrect(struct parser *url)
             continue;
         }
 
-else if (*runner2 == '/' || *runner2 == '_' || *runner2 == '-' || *runner2 == '.' ||
-         *runner2 == '~' || *runner2 == '?' || *runner2 == '&' || *runner2 == '=' ||
-         *runner2 == '+' || *runner2 == '(' || *runner2 == ')')
+else if (*runner2 == '/' || *runner2 == '_' || *runner2 == '-' || *runner2 == '.' || *runner2 == '~' || *runner2 == '?' || *runner2 == '&' || *runner2 == '=' || *runner2 == '+' || *runner2 == '(' || *runner2 == ')')
         {
             runner2 += 1;
             continue;
@@ -436,7 +434,7 @@ int httpparse(struct http_parser *serv, char *httpresp)
     }
     size_t line_length = (size_t)(cursor - line_start);
 
-    // Extract HTTP status code.
+    // Extract HTTP code.
     char *space = memchr(line_start, ' ', line_length);
 
     if (space == NULL || strncasecmp(line_start, "HTTP/", 5) != 0)
@@ -464,7 +462,6 @@ int httpparse(struct http_parser *serv, char *httpresp)
     if (serv->status_code == NULL)
         goto error;
 
-    // Move past the status line's CRLF.
     cursor += 2;
 
     // individual headers.
@@ -484,7 +481,7 @@ int httpparse(struct http_parser *serv, char *httpresp)
         }
         line_length = (size_t)(cursor - line_start);
 
-        // next line.
+
         cursor += 2;
 
         // if empty line
@@ -492,7 +489,7 @@ int httpparse(struct http_parser *serv, char *httpresp)
         {
             break;
         }
-        // Find the colon separating header name and value.
+       
         char *colon = memchr(line_start, ':', line_length);
 
         if (colon == NULL)
@@ -505,14 +502,14 @@ int httpparse(struct http_parser *serv, char *httpresp)
 
         size_t value_length = line_length - name_length - 1;
 
-        // Remove whitespace.
+        // whitespace.
         while (value_length > 0 && (*value == ' ' || *value == '\t'))
         {
             value++;
             value_length--;
         }
 
-        // Remove trailing whitespace.
+        //trailing whitespace.
         while (value_length > 0 && (value[value_length - 1] == ' ' || value[value_length - 1] == '\t'))
         {
             value_length--;
@@ -524,7 +521,7 @@ int httpparse(struct http_parser *serv, char *httpresp)
             if (value_length == 0)
                 goto error;
 
-            // Validate that the value contains only digits.
+
             for (size_t i = 0; i < value_length; i++)
             {
                 if (value[i] < '0' || value[i] > '9')
@@ -537,7 +534,7 @@ int httpparse(struct http_parser *serv, char *httpresp)
             {
                 goto error;
             }
-            // Reject conflicting duplicate values.
+  
             if (serv->content_len != NULL)
             {
                 if (strcmp(serv->content_len, temp) != 0)

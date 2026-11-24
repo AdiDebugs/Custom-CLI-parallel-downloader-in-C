@@ -12,7 +12,7 @@
 
 
 
-
+//ai has been used to configure the SSL_ctx object
 
 SSL_CTX * sslcont(void)
 {
