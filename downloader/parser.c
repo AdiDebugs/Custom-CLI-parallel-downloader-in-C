@@ -349,9 +349,9 @@ int iscorrect(struct parser *url)
             continue;
         }
 
-        else if (*runner2 == '/' || *runner2 == '_' || *runner2 == '-' || *runner2 == '.' ||
-                 *runner2 == '~' || *runner2 == '?' || *runner2 == '&' || *runner2 == '=' ||
-                 *runner2 == '+')
+else if (*runner2 == '/' || *runner2 == '_' || *runner2 == '-' || *runner2 == '.' ||
+         *runner2 == '~' || *runner2 == '?' || *runner2 == '&' || *runner2 == '=' ||
+         *runner2 == '+' || *runner2 == '(' || *runner2 == ')')
         {
             runner2 += 1;
             continue;
