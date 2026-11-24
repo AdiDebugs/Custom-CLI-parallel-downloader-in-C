@@ -1,119 +1,287 @@
 # Custom Parallel CLI Downloader
+#### Video Demo: https://youtu.be/0tE4GU1ttV0
+#### Description:
+A multithreaded HTTP/HTTPS command-line downloader written in C using POSIX sockets, OpenSSL and low-level file I/O.
 
-I'm building a custom CLI parallel downloader in C to understand what happens under the hood when a file is downloaded. It uses POSIX sockets, OpenSSL, and low-level file I/O instead of relying on a high-level downloading library.
+This project started as an attempt to understand what actually happens under the hood when a file is downloaded. Instead of relying on high-level networking or downloading libraries such as libcurl, I implemented the networking, HTTP request handling, TLS connections, concurrency and file-writing mechanisms myself.
 
-**Status: Work in progress**
+**Status: Functional prototype — actively developing**
 
-## Why I'm building this
+## Why I built this
 
-I wanted to build something that would make me work with the lower-level parts of systems programming rather than hide them behind an existing library. A downloader turned out to be a good way to learn about TCP connections, HTTP, TLS, memory management, concurrency, and file I/O in one project.
+I wanted to work with the lower-level interfaces exposed by the operating system rather than abstract them away behind existing libraries.
 
-The goal is to split a file into byte ranges, download those ranges concurrently, and write each chunk directly to its correct position in the output file. I'm also working on a worker-selection algorithm that uses the file size, measured server response time, and the bandwidth limit supplied by the user to decide how many workers to use.
+A parallel downloader turned out to be a useful project because it combines several areas of systems programming:
 
-## How it is designed
+- TCP socket programming and DNS resolution.
+- HTTP/1.1 request and response handling.
+- TLS connection establishment using OpenSSL.
+- Dynamic memory allocation and response parsing.
+- Concurrency and thread lifecycle management.
+- Low-level positional file I/O.
+- Network performance measurement and optimization.
 
-The program first parses the URL, resolves the hostname, connects to the server, and sends an HTTP `HEAD` request. It uses the response to inspect the status code, file size, redirect information, and whether the server advertises byte-range support.
+The main objective is to divide a file into independent byte ranges, download those ranges concurrently, and write each chunk directly to its correct position in the destination file.
 
-When range downloading is available, the file can be divided into non-overlapping byte ranges. Each worker will use its own connection to request its assigned range, validate the response, and write the received bytes at the corresponding offset with `pwrite()`.
+## Features
 
-The output file is prepared before the download starts. The program currently tries `fallocate()` and falls back to `ftruncate()` when the filesystem does not support allocation through `fallocate()`.
+- HTTP and HTTPS downloads.
+- Custom URL parsing and validation.
+- DNS resolution using `getaddrinfo()`.
+- Manual HTTP/1.1 request construction.
+- TLS connections using OpenSSL.
+- Server metadata retrieval using HTTP HEAD requests.
+- HTTP byte-range downloading.
+- Dynamic worker selection, capped at 8 concurrent workers.
+- Independent TCP connections for individual workers.
+- Positional file writes using `pwrite()`.
+- Output-file allocation using `fallocate()`, with an `ftruncate()` fallback.
+- Response validation using HTTP status codes, `Content-Length` and `Content-Range`.
+- Handling of partial socket/TLS writes, partial file writes and interrupted system calls.
+- Worker result tracking and thread joining.
+
+## Architecture and download workflow
+
+### 1. URL parsing and validation
+
+The URL parser extracts the protocol, hostname, port, path and filename.
+
+It handles default ports for HTTP and HTTPS, as well as explicitly specified ports. The resulting URL structure is used throughout the networking and download routines.
+
+### 2. Server probing and metadata retrieval
+
+Before starting the download, the program resolves the hostname and establishes an initial connection.
+
+It sends an HTTP HEAD request to retrieve information such as:
+
+- HTTP response status.
+- File size through `Content-Length`.
+- Byte-range support through `Accept-Ranges`.
+- Redirect destination through `Location`.
+
+The retrieved metadata is used to determine whether the server is suitable for parallel downloading.
+
+### 3. Worker selection and range partitioning
+
+The worker-selection algorithm considers:
+
+- File size.
+- Measured server response time.
+- Maximum bandwidth supplied by the user.
+
+The selected worker count is capped at **8 concurrent workers**.
+
+The file is divided into non-overlapping byte ranges. Internally, the ranges are represented as half-open intervals:
+
+`[start_offset, end_offset)`
+
+Since HTTP Range requests use inclusive end offsets, the request is constructed using:
+
+`Range: bytes=start_offset-(end_offset - 1)`
+
+Each worker is responsible for downloading only its assigned range.
+
+### 4. Independent HTTP and TLS connections
+
+Every worker establishes its own TCP connection to the server.
+
+For HTTPS downloads, every worker also establishes an independent TLS session using OpenSSL.
+
+The program constructs HTTP GET requests manually and includes the appropriate Range header.
+
+Each worker validates the server's response before accepting the data. In particular, it checks for `206 Partial Content` and validates the returned content length and content range against its assigned byte interval.
+
+### 5. File allocation and positional writes
+
+Before downloading begins, the destination file is created and prepared for the expected file size.
+
+The program first attempts to allocate space using:
+
+`fallocate()`
+
+If allocation through `fallocate()` is unavailable or unsupported by the filesystem, it falls back to:
+
+`ftruncate()`
+
+There is an important difference between these operations:
+
+- `fallocate()` requests allocation of the underlying filesystem blocks.
+- `ftruncate()` establishes the logical file size but does not necessarily reserve the physical disk space immediately.
+
+Once the file is prepared, workers write their downloaded data using `pwrite()`.
+
+Unlike ordinary `write()`, `pwrite()` writes at a specified file offset without modifying the shared file descriptor's current file position.
+
+This allows multiple workers to write to separate regions of the same file without requiring a shared file offset or a mutex around file writes.
+
+The implementation also handles partial writes and interrupted system calls.
+
+### 6. Thread lifecycle and result handling
+
+Workers are launched using `pthread_create()` and collected using `pthread_join()`.
+
+Each worker maintains its own result status. The main thread checks the results after joining the workers and reports failures rather than treating an incomplete download as successful.
+
+Successfully created threads are joined even when thread creation fails partway through.
 
 ## Why the worker limit is 8
 
-The worker-selection algorithm has a hard ceiling of **8 concurrent workers**. This is a design choice, not a limit imposed by HTTP/1.1.
+The maximum worker count is a deliberate design decision, not a restriction imposed by HTTP/1.1.
 
-The current approach gives each worker its own TCP connection and, for HTTPS, its own TLS session. HTTP/1.1 does not provide HTTP/2-style multiplexing of concurrent requests over one connection, so increasing the number of workers also increases the number of connections opened to the same server.
+Every worker opens an independent TCP connection and, for HTTPS, establishes its own TLS session.
 
-Opening too many connections from one client IP can run into per-client connection limits or cause server-side throttling. It also adds connection and TLS-handshake overhead, so more workers do not automatically mean a faster download. The limit of eight is intended to keep parallelism useful without being unnecessarily aggressive toward the server. The algorithm can select fewer workers depending on its inputs, but it will not exceed this cap.
+HTTP/1.1 does not provide HTTP/2-style multiplexing of independent requests over one connection. Increasing the worker count therefore increases connection and TLS-handshake overhead.
 
-## What is implemented so far
+Too many simultaneous connections can also encounter server-side connection limits or throttling.
 
-### URL, networking, and TLS
+The worker-selection algorithm attempts to choose a useful level of parallelism without unnecessarily increasing the number of connections.
 
-- URL parsing and validation.
-- Hostname, port, path, and filename extraction.
-- DNS resolution with `getaddrinfo()`.
-- TCP socket creation and connection.
-- HTTP and HTTPS server probing.
-- TLS client setup using OpenSSL.
-- Certificate and hostname verification.
+More threads do not automatically mean better performance.
 
-### HTTP response handling
+## Current limitations
 
-- HTTP `HEAD` request construction and transmission.
-- Dynamic response buffering using memory allocation and `realloc()`.
-- Parsing of response status and headers.
-- Extraction of `Content-Length`, `Accept-Ranges`, and redirect `Location`.
-- Detection of byte-range support.
+The project is functional, but it does not attempt to implement every behaviour expected from a production download manager.
 
-### File and range-worker groundwork
+The following limitations are intentional and documented:
 
-- Initial worker-count selection algorithm, capped at eight workers.
-- File-size-based byte-range partitioning.
-- Output-file creation and preallocation using `fallocate()`, with a `ftruncate()` fallback.
-- Initial HTTPS `GET` range-worker routine.
-- Partial TLS request-write handling.
-- Validation of `206 Partial Content`, `Content-Length`, and `Content-Range` responses.
-- Handling of body bytes that arrive in the same read as the HTTP headers.
-- Random-access writes using `pwrite()`, including partial-write and `EINTR` handling.
+### No sequential-download fallback
 
-**The important distinction:** the HTTPS range-worker routine is a work in progress, but the complete parallel download flow is not integrated yet. Thread creation and joining, HTTP range workers, sequential fallback, and end-to-end download verification still need to be completed. At this stage, the program can probe a server and prepare the destination file.
-## What I plan to work on next
+The current implementation relies on HTTP byte-range support.
 
-1. **Finish thread orchestration** — create workers with `pthread_create()`, join every worker with `pthread_join()`, and check each worker's result.
-2. **Complete HTTPS parallel downloads** — connect the worker routine to the main download flow and verify that all byte ranges are written correctly.
-3. **Add HTTP range workers** — implement the equivalent worker over ordinary TCP sockets.
-4. **Build sequential fallback** — download the file using one connection when ranges are unsupported or unsuitable.
-5. **Handle failures and recovery** — deal with servers that ignore range requests, failed workers, interrupted connections, malformed responses, and incomplete files.
-6. **Test correctness** — compare downloaded files with the originals using a checksum, and test different file sizes, servers, and worker counts.
-7. **Measure performance** — compare single-connection and parallel downloads and tune the worker-selection algorithm based on results.
+When the server does not advertise byte-range support, the program reports that ranged downloading is unavailable and terminates the download attempt.
 
-## Technologies
+It does not currently switch to a conventional single-connection download.
 
-- **Language:** C
-- **Networking:** POSIX sockets
-- **DNS:** `getaddrinfo()`
-- **HTTP:** HTTP/1.1
-- **TLS:** OpenSSL
-- **Concurrency:** POSIX threads
-- **File I/O:** `open()`, `fallocate()`, `ftruncate()`, and `pwrite()`
-- **Compiler:** GCC
+### No automatic redirect following
+
+The program retrieves the `Location` header when a server responds with a redirect.
+
+However, it does not automatically follow the redirect. Instead, it displays the destination and requires the user to rerun the program with the new URL.
+
+### No download resumption
+
+Interrupted downloads cannot currently resume from their previously downloaded byte ranges.
+
+The program does not maintain a persistent download-state file or verify previously completed chunks before continuing.
+
+### No automatic worker retry or range reassignment
+
+When a worker fails, the failure is reported to the main thread.
+
+The program does not currently retry failed ranges or dynamically reassign them to other workers.
+
+### Range support is server-dependent
+
+The parallel workflow requires a server that supports byte-range requests and returns valid partial-content responses.
+
+A server that ignores Range requests or provides inconsistent response metadata cannot be handled through the current parallel workflow.
 
 ## Building
 
-The project is being developed for a POSIX-compatible environment and requires GCC, OpenSSL development headers and libraries, and POSIX threads.
+### Requirements
 
-From the project directory, compile the current source files with:
+- Linux or WSL with a POSIX-compatible development environment.
+- GCC.
+- OpenSSL development headers and libraries.
+- POSIX threads.
+
+On Ubuntu/WSL, install the dependencies using:
+
+```bash
+sudo apt update
+sudo apt install build-essential libssl-dev
+```
+
+### Compile
+
+From the project directory:
 
 ```bash
 gcc -std=gnu11 \
     -Wall -Wextra -Wpedantic \
     -Wshadow -Wformat=2 \
     -g \
-    main.c parser.c connections.c tls.c optimal_threadc.c \
+    main.c parser.c connections.c tls.c \
+    optimal_threadc.c multithreading.c \
     -o downloader \
     -pthread -lssl -lcrypto
 ```
 
-The source file list may need to be adjusted if the project is split into additional modules. The build command is for the current development layout, not a promise that every planned feature is already available.
-
 ## Usage
 
-The intended command-line format is:
+The command-line interface is:
 
 ```bash
 ./downloader <URL> <MAX_BANDWIDTH_Mbps>
 ```
 
-For example:
+Example:
 
 ```bash
-./downloader https://proof.ovh.net/files/100Mb.dat 45
+./downloader \
+    "https://assets.mixkit.co/videos/41576/41576-1080.mp4" \
+    40
 ```
 
-The bandwidth argument is the maximum network bandwidth in megabits per second (Mbps) that is supplied to the worker-selection algorithm. It is an input to the algorithm, not a guarantee of the speed the download will reach.
+The second argument represents the maximum network bandwidth, in megabits per second, supplied to the worker-selection algorithm.
+
+It is an input to the algorithm, not a guarantee of the actual download speed.
+
+Quote URLs containing shell-sensitive characters such as parentheses or ampersands. URL paths should use valid percent-encoding where appropriate.
+
+## Technologies
+
+| Component | Technology |
+|---|---|
+| Language | C |
+| Compiler | GCC |
+| Networking | POSIX sockets |
+| DNS resolution | `getaddrinfo()` |
+| Application protocol | HTTP/1.1 |
+| Secure transport | OpenSSL |
+| Concurrency | POSIX threads (`pthread`) |
+| Memory management | `malloc()`, `realloc()`, `free()` |
+| File operations | `open()`, `fallocate()`, `ftruncate()`, `pwrite()` |
+| Socket/TLS I/O | `send()`, `recv()`, `SSL_write()`, `SSL_read()` |
+
+## Testing and performance
+
+The downloader has been tested using HTTP and HTTPS file endpoints, including larger binary and video files.
+
+Testing has included:
+
+- TLS connection establishment and protocol negotiation.
+- Multiple concurrent HTTPS workers.
+- HTTP partial-content response validation.
+- Different file sizes and worker counts.
+- Downloading over conventional Wi-Fi and mobile 5G connections.
+- Comparing download completion times against browser downloads.
+
+For integrity verification, compare the downloaded file against a reference file using SHA-256:
+
+```bash
+sha256sum downloader_output.mp4 reference.mp4
+```
+
+Matching hashes indicate that the downloaded contents are identical.
+
+Download performance depends on the server, available network bandwidth, connection limits and selected worker count.
+
+## Future improvements
+
+- Sequential downloading when byte ranges are unavailable.
+- Automatic redirect resolution and following.
+- Resume support using persistent download metadata.
+- Automatic retries and failed-range reassignment.
+- More robust timeout and connection-failure handling.
+- IPv6 support.
+- More systematic performance benchmarking.
+- Further optimization of worker selection.
 
 ## Project goals
 
-I'm using this project to get more comfortable with C and the interfaces that operating systems expose to network applications. The main things I want to learn by building it are socket programming, HTTP message handling, TLS, concurrency, memory ownership, file operations, and performance measurement.
+This project is primarily a systems-programming learning exercise.
 
+I built it to gain practical experience with networking interfaces, HTTP protocol handling, TLS, memory ownership, multithreading and low-level file operations.
+
+Rather than depending on a high-level downloading library, the goal was to understand and implement the mechanisms that make concurrent file transfers possible.
